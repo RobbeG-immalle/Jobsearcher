@@ -115,7 +115,7 @@ function canonicalLocation(loc: string): string {
     wallonie: 'Wallonia',
     'oost-vlaanderen': 'East Flanders',
     'west-vlaanderen': 'West Flanders',
-    belgi: 'Belgium',
+    belgi: 'Belgium',   // matches partial strings like "belgie"
     belgië: 'Belgium',
     // pass-through for already-English names
   };

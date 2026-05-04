@@ -349,7 +349,7 @@ async function runScrapers(
 
   const tasks = sources.map((source) =>
     scrapeSource(source).catch((err: Error) => {
-      console.error(`[Scraper] Failed for source "${source}":`, err.message);
+      console.error('[Scraper] Failed for source:', source, '-', err.message);
       return [] as Job[];
     }),
   );
