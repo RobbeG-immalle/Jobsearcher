@@ -13,7 +13,7 @@ import { StepstoneScraper } from './scrapers/stepstone';
 import { VDABScraper } from './scrapers/vdab';
 import { JobatScraper } from './scrapers/jobat';
 import { scoreJobs } from './scoring/scorer';
-import { sendApplicationEmail } from './email/mailer';
+import { sendApplicationEmail, generateEmailDraft } from './email/mailer';
 import { CVData, EmailOptions, Job, SearchOptions, SearchResult } from './types';
 
 // ---------------------------------------------------------------------------
@@ -26,6 +26,9 @@ app.use(express.json());
 // Ensure upload directory exists
 const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+// Serve the static frontend
+app.use(express.static(path.resolve(process.cwd(), 'public')));
 
 // Allowed scraper sources (allowlist to prevent dynamic dispatch on user input)
 const ALLOWED_SOURCES = ['indeed', 'stepstone', 'vdab', 'jobat'] as const;
@@ -307,6 +310,43 @@ app.post('/email/apply', async (req: Request, res: Response, next: NextFunction)
   }
 });
 
+/**
+ * POST /email/generate
+ * Generate an application email draft without sending it.
+ *
+ * Body (JSON):
+ * {
+ *   jobTitle: string,
+ *   company: string,
+ *   jobUrl: string,
+ *   applicantName: string,
+ *   applicantEmail: string,
+ *   coverLetter?: string,
+ * }
+ * Response: { subject: string, body: string }
+ */
+app.post('/email/generate', (req: Request, res: Response) => {
+  const required = ['jobTitle', 'company', 'jobUrl', 'applicantName', 'applicantEmail'];
+  const missing = required.filter((f) => !req.body[f]);
+  if (missing.length > 0) {
+    res.status(400).json({ error: `Missing required fields: ${missing.join(', ')}` });
+    return;
+  }
+
+  const opts: EmailOptions = {
+    to: '', // Not needed for draft generation – recipient is chosen by the user when sending manually
+    jobTitle: req.body.jobTitle,
+    company: req.body.company,
+    jobUrl: req.body.jobUrl,
+    applicantName: req.body.applicantName,
+    applicantEmail: req.body.applicantEmail,
+    coverLetter: req.body.coverLetter,
+  };
+
+  const draft = generateEmailDraft(opts);
+  res.json(draft);
+});
+
 // ---------------------------------------------------------------------------
 // Error handler
 // ---------------------------------------------------------------------------
@@ -370,6 +410,8 @@ app.listen(PORT, () => {
   console.log('  POST /jobs/search           (JSON body)');
   console.log('  POST /jobs/search-with-cv   (multipart: cv + optional fields)');
   console.log('  POST /email/apply           (JSON body)');
+  console.log('  POST /email/generate        (JSON body)');
+  console.log(`  GET  /                      (UI)`);
 });
 
 export default app;
