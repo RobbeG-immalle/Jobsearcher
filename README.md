@@ -9,7 +9,7 @@ A Node.js + TypeScript REST API that uses **Playwright** to scrape Belgian job b
 | Feature | Detail |
 |---|---|
 | CV parsing | Upload a **PDF** or plain-text CV |
-| Skill extraction | Detects 80 + tech skills and spoken languages from CV text |
+| Skill extraction | Detects 80+ tech skills and spoken languages from CV text |
 | Location extraction | Detects Belgian cities / regions from CV |
 | Job scraping | Indeed BE, Stepstone BE, VDAB, Jobat BE |
 | Relevance scoring | 0–100 score based on skill matches + recency |
@@ -97,7 +97,7 @@ Search for jobs using manually supplied parameters (or a server-side CV file pat
 | `maxResults` | `20` | Max results per source |
 | `sources` | all four | Subset of `["indeed","stepstone","vdab","jobat"]` |
 | `jobType` | — | `"fulltime"` / `"parttime"` / `"contract"` / `"internship"` |
-| `cvPath` | — | Absolute path to a CV file on the server (alternative to uploading) |
+| `cvFilename` | — | Filename (basename only) of a previously uploaded CV file in the uploads directory |
 
 **Response**
 ```json
@@ -149,11 +149,11 @@ Send a job application email.
   "applicantName": "Jane Doe",
   "applicantEmail": "jane@example.com",
   "coverLetter": "Dear Hiring Manager,\n\nI am very interested in…",
-  "cvPath": "/absolute/path/to/cv.pdf"
+  "cvFilename": "my-cv-abc123.pdf"
 }
 ```
 
-`coverLetter` and `cvPath` are optional. If `coverLetter` is omitted, a professional default is generated. If `cvPath` is provided and the file exists, it is attached to the email as `CV.pdf`.
+`coverLetter` and `cvFilename` are optional. If `coverLetter` is omitted, a professional default is generated. If `cvFilename` is provided and the file exists in the uploads directory, it is attached to the email as `CV.pdf`.
 
 ---
 

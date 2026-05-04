@@ -6,7 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { rateLimit } from 'express-rate-limit';
 
-import { parseCVBuffer, parseCVFile } from './cv/parser';
+import { parseCVBuffer } from './cv/parser';
 import { extractCVData } from './cv/extractor';
 import { IndeedScraper } from './scrapers/indeed';
 import { StepstoneScraper } from './scrapers/stepstone';
@@ -54,27 +54,20 @@ const uploadRateLimit = rateLimit({
 });
 
 // ---------------------------------------------------------------------------
-// Helper: validate a user-supplied path stays within the uploads directory.
-// Also accepts files directly inside UPLOAD_DIR (no trailing sep required).
+// Helper: construct a safe path within UPLOAD_DIR using only the basename.
+// path.basename() strips any directory components, preventing traversal.
 // ---------------------------------------------------------------------------
-function resolveUploadPath(userPath: string): string | null {
-  const resolved = path.resolve(userPath);
-  if (resolved === UPLOAD_DIR || resolved.startsWith(UPLOAD_DIR + path.sep)) {
-    return resolved;
-  }
-  return null;
+function safeUploadPath(userFilename: string): string {
+  return path.join(UPLOAD_DIR, path.basename(userFilename));
 }
 
 /**
- * Read a file that was placed in UPLOAD_DIR by multer.
- * Resolves and validates the multer-generated path before reading.
+ * Determine MIME type from a file extension (for server-side CV files).
  */
-function readUploadedFile(multerPath: string): Buffer {
-  const resolved = path.resolve(multerPath);
-  if (resolved !== UPLOAD_DIR && !resolved.startsWith(UPLOAD_DIR + path.sep)) {
-    throw new Error('Unexpected file path outside upload directory');
-  }
-  return fs.readFileSync(resolved);
+function mimeFromExt(filename: string): string {
+  return path.extname(filename).toLowerCase() === '.pdf'
+    ? 'application/pdf'
+    : 'text/plain';
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +100,7 @@ app.post(
         return;
       }
 
-      const buffer = readUploadedFile(req.file.path);
+      const buffer = fs.readFileSync(safeUploadPath(req.file.path));
       const rawText = await parseCVBuffer(buffer, req.file.mimetype);
       const cvData = extractCVData(rawText);
 
@@ -118,8 +111,8 @@ app.post(
     } catch (err) {
       next(err);
     } finally {
-      // Clean up uploaded temp file
-      if (req.file?.path) fs.unlink(path.resolve(req.file.path), () => null);
+      // Clean up uploaded temp file using basename-derived safe path
+      if (req.file?.path) fs.unlink(safeUploadPath(req.file.path), () => null);
     }
   },
 );
@@ -130,7 +123,7 @@ app.post(
  *
  * Body (JSON):
  * {
- *   cvPath?: string,          // path within the uploads directory on the server
+ *   cvFilename?: string,      // filename (basename only) of a CV file in the uploads directory
  *   skills?: string[],        // override / supplement extracted skills
  *   location?: string,        // override extracted location (e.g. "Ghent")
  *   radius?: number,          // km radius (where supported)
@@ -143,14 +136,15 @@ app.post('/jobs/search', async (req: Request, res: Response, next: NextFunction)
   try {
     let cvData: CVData | null = null;
 
-    if (req.body.cvPath) {
-      // Validate the path is within the uploads directory (prevent path traversal)
-      const safePath = resolveUploadPath(req.body.cvPath);
-      if (!safePath) {
-        res.status(400).json({ error: 'cvPath must point to a file in the uploads directory.' });
+    if (req.body.cvFilename) {
+      // Use only the basename to prevent path traversal
+      const safePath = safeUploadPath(req.body.cvFilename);
+      if (!fs.existsSync(safePath)) {
+        res.status(404).json({ error: 'CV file not found in the uploads directory.' });
         return;
       }
-      const raw = await parseCVFile(safePath);
+      const buffer = fs.readFileSync(safePath);
+      const raw = await parseCVBuffer(buffer, mimeFromExt(req.body.cvFilename));
       cvData = extractCVData(raw);
     }
 
@@ -167,7 +161,7 @@ app.post('/jobs/search', async (req: Request, res: Response, next: NextFunction)
     const options: SearchOptions = {
       location,
       radius: req.body.radius,
-      maxResults: req.body.maxResults ?? 20,
+      maxResults: Number(req.body.maxResults ?? 20),
       jobType: req.body.jobType,
     };
 
@@ -212,7 +206,7 @@ app.post(
         return;
       }
 
-      const buffer = readUploadedFile(req.file.path);
+      const buffer = fs.readFileSync(safeUploadPath(req.file.path));
       const rawText = await parseCVBuffer(buffer, req.file.mimetype);
       const cvData = extractCVData(rawText);
 
@@ -250,7 +244,7 @@ app.post(
     } catch (err) {
       next(err);
     } finally {
-      if (req.file?.path) fs.unlink(path.resolve(req.file.path), () => null);
+      if (req.file?.path) fs.unlink(safeUploadPath(req.file.path), () => null);
     }
   },
 );
@@ -268,7 +262,7 @@ app.post(
  *   applicantName: string,
  *   applicantEmail: string,
  *   coverLetter?: string,   // if omitted, a default letter is generated
- *   cvPath?: string,        // path within uploads directory to attach as PDF
+ *   cvFilename?: string,    // basename of a CV file in the uploads directory to attach
  * }
  */
 app.post('/email/apply', async (req: Request, res: Response, next: NextFunction) => {
@@ -280,14 +274,10 @@ app.post('/email/apply', async (req: Request, res: Response, next: NextFunction)
       return;
     }
 
-    // Validate cvPath if provided
+    // Derive safe CV path from basename only (prevents path traversal)
     let safeCvPath: string | undefined;
-    if (req.body.cvPath) {
-      safeCvPath = resolveUploadPath(req.body.cvPath) ?? undefined;
-      if (!safeCvPath) {
-        res.status(400).json({ error: 'cvPath must point to a file in the uploads directory.' });
-        return;
-      }
+    if (req.body.cvFilename) {
+      safeCvPath = safeUploadPath(req.body.cvFilename);
     }
 
     const opts: EmailOptions = {

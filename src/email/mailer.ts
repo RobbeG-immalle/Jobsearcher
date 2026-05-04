@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { EmailOptions } from '../types';
 
-/** Allowed directory for CV attachments – prevents path traversal. */
+/** Directory where CV attachments are stored (basename-validated by callers). */
 const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads');
 
 /**
@@ -26,6 +26,9 @@ function createTransporter() {
  *
  * If `coverLetter` is not supplied, a default one is generated using the
  * applicant's name, the job title, and the company name.
+ *
+ * `cvPath` (if supplied) MUST be a path pre-constructed by callers using
+ * `path.join(UPLOAD_DIR, path.basename(userInput))` to prevent traversal.
  */
 export async function sendApplicationEmail(opts: EmailOptions): Promise<void> {
   const transporter = createTransporter();
@@ -40,17 +43,16 @@ export async function sendApplicationEmail(opts: EmailOptions): Promise<void> {
     html: `<pre style="font-family: Arial, sans-serif; white-space: pre-wrap;">${coverLetter}</pre>`,
   };
 
-  // Optionally attach the CV – path must reside within the uploads directory
+  // Attach CV only if the path is within the uploads directory and exists
   if (opts.cvPath) {
-    const resolved = path.resolve(opts.cvPath);
-    if (
-      (resolved === UPLOAD_DIR || resolved.startsWith(UPLOAD_DIR + path.sep)) &&
-      fs.existsSync(resolved)
-    ) {
+    const cvPathResolved = path.resolve(opts.cvPath);
+    const inUploadDir =
+      cvPathResolved === UPLOAD_DIR || cvPathResolved.startsWith(UPLOAD_DIR + path.sep);
+    if (inUploadDir && fs.existsSync(cvPathResolved)) {
       mailOptions.attachments = [
         {
           filename: 'CV.pdf',
-          path: resolved,
+          path: cvPathResolved,
         },
       ];
     }
