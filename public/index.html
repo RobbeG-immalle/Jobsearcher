@@ -457,8 +457,12 @@
   }
 
   async function fetchDraft(job) {
-    const name  = draftApplicantName.value.trim()  || 'Your Name';
-    const email = draftApplicantEmail.value.trim() || 'your@email.com';
+    const name  = draftApplicantName.value.trim();
+    const email = draftApplicantEmail.value.trim();
+    if (!name || !email) {
+      draftBody.value = 'Please fill in your name and email address above, then click ↻ Regenerate.';
+      return;
+    }
     try {
       const res = await fetch('/email/generate', {
         method: 'POST',

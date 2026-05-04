@@ -334,7 +334,7 @@ app.post('/email/generate', (req: Request, res: Response) => {
   }
 
   const opts: EmailOptions = {
-    to: '',
+    to: '', // Not needed for draft generation – recipient is chosen by the user when sending manually
     jobTitle: req.body.jobTitle,
     company: req.body.company,
     jobUrl: req.body.jobUrl,
