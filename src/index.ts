@@ -53,6 +53,15 @@ const uploadRateLimit = rateLimit({
   message: { error: 'Too many requests. Please try again later.' },
 });
 
+// Rate limiter for the search endpoint (Playwright scraping is resource-intensive)
+const searchRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many search requests. Please try again later.' },
+});
+
 // ---------------------------------------------------------------------------
 // Helper: construct a safe path within UPLOAD_DIR using only the basename.
 // path.basename() strips any directory components, preventing traversal.
@@ -100,7 +109,7 @@ app.post(
         return;
       }
 
-      const buffer = fs.readFileSync(safeUploadPath(req.file.path));
+      const buffer = fs.readFileSync(safeUploadPath(req.file.filename));
       const rawText = await parseCVBuffer(buffer, req.file.mimetype);
       const cvData = extractCVData(rawText);
 
@@ -111,8 +120,8 @@ app.post(
     } catch (err) {
       next(err);
     } finally {
-      // Clean up uploaded temp file using basename-derived safe path
-      if (req.file?.path) fs.unlink(safeUploadPath(req.file.path), () => null);
+      // Clean up uploaded temp file using the multer-generated filename
+      if (req.file?.filename) fs.unlink(safeUploadPath(req.file.filename), () => null);
     }
   },
 );
@@ -132,7 +141,7 @@ app.post(
  *   sources?: string[],       // ["indeed","stepstone","vdab","jobat"] – default: all
  * }
  */
-app.post('/jobs/search', async (req: Request, res: Response, next: NextFunction) => {
+app.post('/jobs/search', searchRateLimit, async (req: Request, res: Response, next: NextFunction) => {
   try {
     let cvData: CVData | null = null;
 
@@ -206,7 +215,7 @@ app.post(
         return;
       }
 
-      const buffer = fs.readFileSync(safeUploadPath(req.file.path));
+      const buffer = fs.readFileSync(safeUploadPath(req.file.filename));
       const rawText = await parseCVBuffer(buffer, req.file.mimetype);
       const cvData = extractCVData(rawText);
 
@@ -244,7 +253,7 @@ app.post(
     } catch (err) {
       next(err);
     } finally {
-      if (req.file?.path) fs.unlink(safeUploadPath(req.file.path), () => null);
+      if (req.file?.filename) fs.unlink(safeUploadPath(req.file.filename), () => null);
     }
   },
 );
@@ -340,7 +349,7 @@ async function runScrapers(
 
   const tasks = sources.map((source) =>
     scrapeSource(source).catch((err: Error) => {
-      console.error('[Scraper] Failed for source, error:', err.message);
+      console.error(`[Scraper] Failed for source "${source}":`, err.message);
       return [] as Job[];
     }),
   );
