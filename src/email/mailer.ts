@@ -1,6 +1,10 @@
 import nodemailer from 'nodemailer';
 import fs from 'fs';
+import path from 'path';
 import { EmailOptions } from '../types';
+
+/** Allowed directory for CV attachments – prevents path traversal. */
+const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads');
 
 /**
  * Creates a reusable nodemailer transporter from environment variables.
@@ -36,18 +40,21 @@ export async function sendApplicationEmail(opts: EmailOptions): Promise<void> {
     html: `<pre style="font-family: Arial, sans-serif; white-space: pre-wrap;">${coverLetter}</pre>`,
   };
 
-  // Optionally attach the CV
-  if (opts.cvPath && fs.existsSync(opts.cvPath)) {
-    mailOptions.attachments = [
-      {
-        filename: 'CV.pdf',
-        path: opts.cvPath,
-      },
-    ];
+  // Optionally attach the CV – path must reside within the uploads directory
+  if (opts.cvPath) {
+    const resolved = path.resolve(opts.cvPath);
+    if (resolved.startsWith(UPLOAD_DIR + path.sep) && fs.existsSync(resolved)) {
+      mailOptions.attachments = [
+        {
+          filename: 'CV.pdf',
+          path: resolved,
+        },
+      ];
+    }
   }
 
   await transporter.sendMail(mailOptions);
-  console.log(`[Mailer] Application sent to ${opts.to} for "${opts.jobTitle}" at ${opts.company}`);
+  console.log(`[Mailer] Application sent for "${opts.jobTitle}" at ${opts.company}`);
 }
 
 /**

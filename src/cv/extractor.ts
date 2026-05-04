@@ -91,6 +91,7 @@ function extractName(rawText: string): string | undefined {
 }
 
 function extractEmail(rawText: string): string | undefined {
+  // The \- inside the character class is intentional (hyphen at end is also valid, but explicit is clearer)
   const match = rawText.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/); // eslint-disable-line no-useless-escape
   return match ? match[0] : undefined;
 }
@@ -116,6 +117,7 @@ function canonicalLocation(loc: string): string {
     'oost-vlaanderen': 'East Flanders',
     'west-vlaanderen': 'West Flanders',
     belgi: 'Belgium',
+    belgië: 'Belgium',
     // pass-through for already-English names
   };
   return map[loc] ?? loc.charAt(0).toUpperCase() + loc.slice(1);

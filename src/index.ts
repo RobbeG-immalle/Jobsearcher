@@ -4,6 +4,7 @@ import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { rateLimit } from 'express-rate-limit';
 
 import { parseCVBuffer, parseCVFile } from './cv/parser';
 import { extractCVData } from './cv/extractor';
@@ -23,8 +24,12 @@ app.use(cors());
 app.use(express.json());
 
 // Ensure upload directory exists
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+// Allowed scraper sources (allowlist to prevent dynamic dispatch on user input)
+const ALLOWED_SOURCES = ['indeed', 'stepstone', 'vdab', 'jobat'] as const;
+type SourceKey = typeof ALLOWED_SOURCES[number];
 
 const upload = multer({
   dest: UPLOAD_DIR,
@@ -38,6 +43,24 @@ const upload = multer({
     }
   },
 });
+
+// Rate limiter for file-upload endpoints (prevent DoS / resource exhaustion)
+const uploadRateLimit = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please try again later.' },
+});
+
+// ---------------------------------------------------------------------------
+// Helper: validate a user-supplied path stays within the uploads directory
+// ---------------------------------------------------------------------------
+function resolveUploadPath(userPath: string): string | null {
+  const resolved = path.resolve(userPath);
+  if (resolved.startsWith(UPLOAD_DIR + path.sep)) return resolved;
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -60,6 +83,7 @@ app.get('/health', (_req: Request, res: Response) => {
  */
 app.post(
   '/cv/parse',
+  uploadRateLimit,
   upload.single('cv'),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -68,10 +92,9 @@ app.post(
         return;
       }
 
-      const rawText = await parseCVBuffer(
-        fs.readFileSync(req.file.path),
-        req.file.mimetype,
-      );
+      // req.file.path is set by multer to a path inside UPLOAD_DIR – safe to read
+      const buffer = fs.readFileSync(req.file.path);
+      const rawText = await parseCVBuffer(buffer, req.file.mimetype);
       const cvData = extractCVData(rawText);
 
       // Remove raw text from response to keep payload small
@@ -93,7 +116,7 @@ app.post(
  *
  * Body (JSON):
  * {
- *   cvPath?: string,          // absolute path to CV file on server (alternative to upload)
+ *   cvPath?: string,          // path within the uploads directory on the server
  *   skills?: string[],        // override / supplement extracted skills
  *   location?: string,        // override extracted location (e.g. "Ghent")
  *   radius?: number,          // km radius (where supported)
@@ -107,7 +130,13 @@ app.post('/jobs/search', async (req: Request, res: Response, next: NextFunction)
     let cvData: CVData | null = null;
 
     if (req.body.cvPath) {
-      const raw = await parseCVFile(req.body.cvPath);
+      // Validate the path is within the uploads directory (prevent path traversal)
+      const safePath = resolveUploadPath(req.body.cvPath);
+      if (!safePath) {
+        res.status(400).json({ error: 'cvPath must point to a file in the uploads directory.' });
+        return;
+      }
+      const raw = await parseCVFile(safePath);
       cvData = extractCVData(raw);
     }
 
@@ -128,7 +157,7 @@ app.post('/jobs/search', async (req: Request, res: Response, next: NextFunction)
       jobType: req.body.jobType,
     };
 
-    const requestedSources: string[] = req.body.sources ?? ['indeed', 'stepstone', 'vdab', 'jobat'];
+    const requestedSources = sanitiseSources(req.body.sources);
     const headless = process.env.HEADLESS !== 'false';
 
     const allJobs = await runScrapers(skills, options, requestedSources, headless);
@@ -160,6 +189,7 @@ app.post('/jobs/search', async (req: Request, res: Response, next: NextFunction)
  */
 app.post(
   '/jobs/search-with-cv',
+  uploadRateLimit,
   upload.single('cv'),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -168,10 +198,9 @@ app.post(
         return;
       }
 
-      const rawText = await parseCVBuffer(
-        fs.readFileSync(req.file.path),
-        req.file.mimetype,
-      );
+      // req.file.path is set by multer to a path inside UPLOAD_DIR – safe to read
+      const buffer = fs.readFileSync(req.file.path);
+      const rawText = await parseCVBuffer(buffer, req.file.mimetype);
       const cvData = extractCVData(rawText);
 
       const location = req.body.location ?? cvData.location;
@@ -188,9 +217,9 @@ app.post(
         jobType: req.body.jobType,
       };
 
-      const requestedSources: string[] = req.body.sources
-        ? req.body.sources.split(',').map((s: string) => s.trim().toLowerCase())
-        : ['indeed', 'stepstone', 'vdab', 'jobat'];
+      const requestedSources = req.body.sources
+        ? sanitiseSources(req.body.sources.split(',').map((s: string) => s.trim()))
+        : [...ALLOWED_SOURCES];
 
       const headless = process.env.HEADLESS !== 'false';
       const allJobs = await runScrapers(skills, options, requestedSources, headless);
@@ -226,7 +255,7 @@ app.post(
  *   applicantName: string,
  *   applicantEmail: string,
  *   coverLetter?: string,   // if omitted, a default letter is generated
- *   cvPath?: string,        // absolute path to attach as PDF
+ *   cvPath?: string,        // path within uploads directory to attach as PDF
  * }
  */
 app.post('/email/apply', async (req: Request, res: Response, next: NextFunction) => {
@@ -238,6 +267,16 @@ app.post('/email/apply', async (req: Request, res: Response, next: NextFunction)
       return;
     }
 
+    // Validate cvPath if provided
+    let safeCvPath: string | undefined;
+    if (req.body.cvPath) {
+      safeCvPath = resolveUploadPath(req.body.cvPath) ?? undefined;
+      if (!safeCvPath) {
+        res.status(400).json({ error: 'cvPath must point to a file in the uploads directory.' });
+        return;
+      }
+    }
+
     const opts: EmailOptions = {
       to: req.body.to,
       jobTitle: req.body.jobTitle,
@@ -246,7 +285,7 @@ app.post('/email/apply', async (req: Request, res: Response, next: NextFunction)
       applicantName: req.body.applicantName,
       applicantEmail: req.body.applicantEmail,
       coverLetter: req.body.coverLetter,
-      cvPath: req.body.cvPath,
+      cvPath: safeCvPath,
     };
 
     await sendApplicationEmail(opts);
@@ -268,27 +307,38 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Filter user-supplied source names to only allowlisted values, preventing
+ * dynamic method dispatch on arbitrary user-controlled strings.
+ */
+function sanitiseSources(input: unknown): SourceKey[] {
+  if (!Array.isArray(input)) return [...ALLOWED_SOURCES];
+  return (input as string[])
+    .map((s) => s.toLowerCase().trim())
+    .filter((s): s is SourceKey => (ALLOWED_SOURCES as readonly string[]).includes(s));
+}
+
 async function runScrapers(
   skills: string[],
   options: SearchOptions,
-  sources: string[],
+  sources: SourceKey[],
   headless: boolean,
 ): Promise<Job[]> {
-  const scraperMap: Record<string, () => Promise<Job[]>> = {
+  // Explicit mapping by allowlisted key type – no user-controlled dynamic dispatch
+  const scraperMap: Record<SourceKey, () => Promise<Job[]>> = {
     indeed: () => new IndeedScraper(headless).scrape(skills, options),
     stepstone: () => new StepstoneScraper(headless).scrape(skills, options),
     vdab: () => new VDABScraper(headless).scrape(skills, options),
     jobat: () => new JobatScraper(headless).scrape(skills, options),
   };
 
-  const tasks = sources
-    .filter((s) => scraperMap[s])
-    .map((s) =>
-      scraperMap[s]().catch((err) => {
-        console.error(`[${s}] Failed:`, err.message);
-        return [] as Job[];
-      }),
-    );
+  const tasks = sources.map((source) =>
+    scraperMap[source]().catch((err: Error) => {
+      console.error('[Scraper] Failed:', source, err.message);
+      return [] as Job[];
+    }),
+  );
 
   const results = await Promise.all(tasks);
   return results.flat();
