@@ -43,7 +43,10 @@ export async function sendApplicationEmail(opts: EmailOptions): Promise<void> {
   // Optionally attach the CV – path must reside within the uploads directory
   if (opts.cvPath) {
     const resolved = path.resolve(opts.cvPath);
-    if (resolved.startsWith(UPLOAD_DIR + path.sep) && fs.existsSync(resolved)) {
+    if (
+      (resolved === UPLOAD_DIR || resolved.startsWith(UPLOAD_DIR + path.sep)) &&
+      fs.existsSync(resolved)
+    ) {
       mailOptions.attachments = [
         {
           filename: 'CV.pdf',

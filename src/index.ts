@@ -54,12 +54,27 @@ const uploadRateLimit = rateLimit({
 });
 
 // ---------------------------------------------------------------------------
-// Helper: validate a user-supplied path stays within the uploads directory
+// Helper: validate a user-supplied path stays within the uploads directory.
+// Also accepts files directly inside UPLOAD_DIR (no trailing sep required).
 // ---------------------------------------------------------------------------
 function resolveUploadPath(userPath: string): string | null {
   const resolved = path.resolve(userPath);
-  if (resolved.startsWith(UPLOAD_DIR + path.sep)) return resolved;
+  if (resolved === UPLOAD_DIR || resolved.startsWith(UPLOAD_DIR + path.sep)) {
+    return resolved;
+  }
   return null;
+}
+
+/**
+ * Read a file that was placed in UPLOAD_DIR by multer.
+ * Resolves and validates the multer-generated path before reading.
+ */
+function readUploadedFile(multerPath: string): Buffer {
+  const resolved = path.resolve(multerPath);
+  if (resolved !== UPLOAD_DIR && !resolved.startsWith(UPLOAD_DIR + path.sep)) {
+    throw new Error('Unexpected file path outside upload directory');
+  }
+  return fs.readFileSync(resolved);
 }
 
 // ---------------------------------------------------------------------------
@@ -92,8 +107,7 @@ app.post(
         return;
       }
 
-      // req.file.path is set by multer to a path inside UPLOAD_DIR – safe to read
-      const buffer = fs.readFileSync(req.file.path);
+      const buffer = readUploadedFile(req.file.path);
       const rawText = await parseCVBuffer(buffer, req.file.mimetype);
       const cvData = extractCVData(rawText);
 
@@ -105,7 +119,7 @@ app.post(
       next(err);
     } finally {
       // Clean up uploaded temp file
-      if (req.file?.path) fs.unlink(req.file.path, () => null);
+      if (req.file?.path) fs.unlink(path.resolve(req.file.path), () => null);
     }
   },
 );
@@ -198,8 +212,7 @@ app.post(
         return;
       }
 
-      // req.file.path is set by multer to a path inside UPLOAD_DIR – safe to read
-      const buffer = fs.readFileSync(req.file.path);
+      const buffer = readUploadedFile(req.file.path);
       const rawText = await parseCVBuffer(buffer, req.file.mimetype);
       const cvData = extractCVData(rawText);
 
@@ -213,7 +226,7 @@ app.post(
 
       const options: SearchOptions = {
         location,
-        maxResults: parseInt(req.body.maxResults ?? '20', 10),
+        maxResults: Number(req.body.maxResults ?? 20),
         jobType: req.body.jobType,
       };
 
@@ -237,7 +250,7 @@ app.post(
     } catch (err) {
       next(err);
     } finally {
-      if (req.file?.path) fs.unlink(req.file.path, () => null);
+      if (req.file?.path) fs.unlink(path.resolve(req.file.path), () => null);
     }
   },
 );
@@ -325,17 +338,19 @@ async function runScrapers(
   sources: SourceKey[],
   headless: boolean,
 ): Promise<Job[]> {
-  // Explicit mapping by allowlisted key type – no user-controlled dynamic dispatch
-  const scraperMap: Record<SourceKey, () => Promise<Job[]>> = {
-    indeed: () => new IndeedScraper(headless).scrape(skills, options),
-    stepstone: () => new StepstoneScraper(headless).scrape(skills, options),
-    vdab: () => new VDABScraper(headless).scrape(skills, options),
-    jobat: () => new JobatScraper(headless).scrape(skills, options),
-  };
+  // Use explicit switch to avoid dynamic property access on user-derived keys
+  function scrapeSource(source: SourceKey): Promise<Job[]> {
+    switch (source) {
+      case 'indeed':    return new IndeedScraper(headless).scrape(skills, options);
+      case 'stepstone': return new StepstoneScraper(headless).scrape(skills, options);
+      case 'vdab':      return new VDABScraper(headless).scrape(skills, options);
+      case 'jobat':     return new JobatScraper(headless).scrape(skills, options);
+    }
+  }
 
   const tasks = sources.map((source) =>
-    scraperMap[source]().catch((err: Error) => {
-      console.error('[Scraper] Failed:', source, err.message);
+    scrapeSource(source).catch((err: Error) => {
+      console.error('[Scraper] Failed for source, error:', err.message);
       return [] as Job[];
     }),
   );
