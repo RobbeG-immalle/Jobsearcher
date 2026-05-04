@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jobsearcher</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f0f4f8;
+      color: #1a202c;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #2b6cb0;
+      color: #fff;
+      padding: 1.25rem 2rem;
+      box-shadow: 0 2px 6px rgba(0,0,0,.2);
+    }
+    header h1 { font-size: 1.5rem; }
+    header p  { font-size: .875rem; opacity: .85; margin-top: .2rem; }
+
+    main { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+
+    /* ── Upload card ── */
+    .card {
+      background: #fff;
+      border-radius: .5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,.1);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 { font-size: 1.1rem; margin-bottom: 1rem; color: #2d3748; }
+
+    .upload-zone {
+      border: 2px dashed #bee3f8;
+      border-radius: .5rem;
+      padding: 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .upload-zone:hover, .upload-zone.drag-over { background: #ebf8ff; }
+    .upload-zone input[type="file"] { display: none; }
+    .upload-zone .icon { font-size: 2.5rem; }
+    .upload-zone p { margin-top: .5rem; color: #4a5568; font-size: .9rem; }
+
+    .file-name {
+      margin-top: .75rem;
+      font-size: .85rem;
+      color: #2b6cb0;
+      font-weight: 600;
+    }
+
+    .row { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem; }
+    .row label { display: flex; flex-direction: column; gap: .25rem; flex: 1; min-width: 180px; font-size: .85rem; color: #4a5568; }
+    .row input, .row select {
+      padding: .45rem .65rem;
+      border: 1px solid #cbd5e0;
+      border-radius: .35rem;
+      font-size: .9rem;
+    }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: .4rem;
+      padding: .55rem 1.25rem;
+      border: none; border-radius: .4rem;
+      font-size: .9rem; font-weight: 600;
+      cursor: pointer; transition: filter .15s;
+    }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn:hover:not(:disabled) { filter: brightness(1.08); }
+    .btn-primary { background: #2b6cb0; color: #fff; }
+    .btn-secondary { background: #edf2f7; color: #2d3748; }
+    .btn-success { background: #38a169; color: #fff; }
+
+    #searchBtn { margin-top: 1rem; }
+
+    /* ── Status / spinner ── */
+    #status {
+      display: none;
+      align-items: center;
+      gap: .75rem;
+      padding: 1rem 1.5rem;
+      background: #fff;
+      border-radius: .5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,.1);
+      margin-bottom: 1.5rem;
+      color: #2d3748;
+      font-size: .9rem;
+    }
+    .spinner {
+      width: 22px; height: 22px;
+      border: 3px solid #bee3f8;
+      border-top-color: #2b6cb0;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Results ── */
+    #resultsSection { display: none; }
+    #resultsHeader {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    #resultsHeader h2 { font-size: 1.1rem; color: #2d3748; }
+    #resultsCount { font-size: .85rem; color: #718096; }
+
+    .job-card {
+      background: #fff;
+      border-radius: .5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,.1);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1rem;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: .5rem 1rem;
+    }
+    .job-main { min-width: 0; }
+    .job-title { font-size: 1rem; font-weight: 700; color: #2b6cb0; margin-bottom: .2rem; }
+    .job-meta { font-size: .82rem; color: #718096; margin-bottom: .5rem; }
+    .job-meta span { margin-right: .75rem; }
+    .job-desc {
+      font-size: .85rem; color: #4a5568;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin-bottom: .5rem;
+    }
+    .job-skills { display: flex; flex-wrap: wrap; gap: .3rem; }
+    .skill-badge {
+      background: #ebf8ff; color: #2b6cb0;
+      font-size: .75rem; padding: .15rem .5rem;
+      border-radius: 999px; font-weight: 600;
+    }
+    .job-score {
+      font-size: .8rem; text-align: right; white-space: nowrap;
+    }
+    .score-bar-wrap { width: 72px; height: 6px; background: #e2e8f0; border-radius: 3px; margin-top: .3rem; display: inline-block; }
+    .score-bar { height: 100%; border-radius: 3px; background: #38a169; }
+
+    .job-actions { display: flex; flex-direction: column; gap: .5rem; align-items: flex-end; padding-top: .25rem; }
+
+    /* ── Modal ── */
+    .modal-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 100;
+      align-items: center; justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: .6rem;
+      box-shadow: 0 4px 24px rgba(0,0,0,.25);
+      width: min(680px, 95vw);
+      max-height: 90vh;
+      display: flex; flex-direction: column;
+    }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .modal-header h3 { font-size: 1rem; color: #2d3748; }
+    .modal-close {
+      background: none; border: none; font-size: 1.4rem;
+      cursor: pointer; color: #718096; line-height: 1;
+    }
+    .modal-close:hover { color: #2d3748; }
+    .modal-body { padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; }
+    .modal-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid #e2e8f0;
+      display: flex; gap: .75rem; justify-content: flex-end;
+    }
+
+    .field-group { margin-bottom: 1rem; }
+    .field-group label { display: block; font-size: .8rem; font-weight: 600; color: #4a5568; margin-bottom: .3rem; }
+    .field-group input[type="text"] {
+      width: 100%; padding: .45rem .65rem;
+      border: 1px solid #cbd5e0; border-radius: .35rem;
+      font-size: .9rem;
+    }
+    .field-group textarea {
+      width: 100%; padding: .65rem;
+      border: 1px solid #cbd5e0; border-radius: .35rem;
+      font-size: .85rem; font-family: inherit;
+      line-height: 1.55; resize: vertical; min-height: 220px;
+    }
+
+    #copyNotice {
+      font-size: .8rem; color: #38a169; display: none;
+    }
+
+    .error-banner {
+      background: #fff5f5; color: #c53030;
+      border: 1px solid #feb2b2;
+      border-radius: .4rem;
+      padding: .75rem 1rem;
+      margin-bottom: 1rem;
+      font-size: .875rem;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🔍 Jobsearcher</h1>
+  <p>Upload your CV, discover matching jobs, and generate application emails in one click.</p>
+</header>
+
+<main>
+
+  <!-- Upload card -->
+  <div class="card">
+    <h2>Upload your CV</h2>
+
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="cvFile" accept=".pdf,.txt" />
+      <div class="icon">📄</div>
+      <p>Click to choose a <strong>PDF</strong> or <strong>.txt</strong> file, or drag &amp; drop here</p>
+      <div class="file-name" id="fileName"></div>
+    </div>
+
+    <div class="row">
+      <label>
+        Location (optional override)
+        <input type="text" id="location" placeholder="e.g. Ghent" />
+      </label>
+      <label>
+        Max results per source
+        <input type="number" id="maxResults" value="20" min="1" max="100" />
+      </label>
+      <label>
+        Job type
+        <select id="jobType">
+          <option value="">Any</option>
+          <option value="fulltime">Full-time</option>
+          <option value="parttime">Part-time</option>
+          <option value="contract">Contract</option>
+          <option value="internship">Internship</option>
+        </select>
+      </label>
+    </div>
+
+    <div id="errorBanner" class="error-banner"></div>
+    <button class="btn btn-primary" id="searchBtn" disabled>🔎 Search Jobs</button>
+  </div>
+
+  <!-- Status -->
+  <div id="status">
+    <div class="spinner"></div>
+    <span id="statusText">Searching for jobs…</span>
+  </div>
+
+  <!-- Results -->
+  <div id="resultsSection">
+    <div id="resultsHeader">
+      <h2>Job Results</h2>
+      <span id="resultsCount"></span>
+    </div>
+    <div id="jobList"></div>
+  </div>
+
+</main>
+
+<!-- Email draft modal -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-header">
+      <h3 id="modalTitle">✉️ Email Draft</h3>
+      <button class="modal-close" id="modalClose" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:.82rem;color:#718096;margin-bottom:1rem;">
+        Review and edit the draft below, then copy it to send manually from your own email client.
+      </p>
+      <div class="field-group">
+        <label for="draftSubject">Subject</label>
+        <input type="text" id="draftSubject" />
+      </div>
+      <div class="field-group">
+        <label for="draftApplicantName">Your name</label>
+        <input type="text" id="draftApplicantName" placeholder="Jane Doe" />
+      </div>
+      <div class="field-group">
+        <label for="draftApplicantEmail">Your email</label>
+        <input type="text" id="draftApplicantEmail" placeholder="jane@example.com" />
+      </div>
+      <div class="field-group">
+        <label for="draftBody">Email body</label>
+        <textarea id="draftBody"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <span id="copyNotice">✓ Copied!</span>
+      <button class="btn btn-secondary" id="btnCopy">📋 Copy to clipboard</button>
+      <button class="btn btn-success" id="btnRegenerate">↻ Regenerate</button>
+      <button class="btn btn-secondary" id="btnClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ── State ──────────────────────────────────────────────────────────────────
+  let currentJob = null;
+
+  // ── DOM refs ───────────────────────────────────────────────────────────────
+  const cvFileInput     = document.getElementById('cvFile');
+  const uploadZone      = document.getElementById('uploadZone');
+  const fileNameEl      = document.getElementById('fileName');
+  const locationInput   = document.getElementById('location');
+  const maxResultsInput = document.getElementById('maxResults');
+  const jobTypeInput    = document.getElementById('jobType');
+  const searchBtn       = document.getElementById('searchBtn');
+  const errorBanner     = document.getElementById('errorBanner');
+  const statusEl        = document.getElementById('status');
+  const statusText      = document.getElementById('statusText');
+  const resultsSection  = document.getElementById('resultsSection');
+  const resultsCount    = document.getElementById('resultsCount');
+  const jobList         = document.getElementById('jobList');
+
+  const modalBackdrop      = document.getElementById('modalBackdrop');
+  const modalClose         = document.getElementById('modalClose');
+  const btnClose           = document.getElementById('btnClose');
+  const btnCopy            = document.getElementById('btnCopy');
+  const btnRegenerate      = document.getElementById('btnRegenerate');
+  const copyNotice         = document.getElementById('copyNotice');
+  const draftSubject       = document.getElementById('draftSubject');
+  const draftBody          = document.getElementById('draftBody');
+  const draftApplicantName = document.getElementById('draftApplicantName');
+  const draftApplicantEmail= document.getElementById('draftApplicantEmail');
+
+  // ── Upload zone ────────────────────────────────────────────────────────────
+  uploadZone.addEventListener('click', () => cvFileInput.click());
+
+  cvFileInput.addEventListener('change', () => {
+    const f = cvFileInput.files[0];
+    if (f) {
+      fileNameEl.textContent = f.name;
+      searchBtn.disabled = false;
+      hideError();
+    }
+  });
+
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f) {
+      // Build a new FileList-compatible object via DataTransfer
+      const dt = new DataTransfer();
+      dt.items.add(f);
+      cvFileInput.files = dt.files;
+      fileNameEl.textContent = f.name;
+      searchBtn.disabled = false;
+      hideError();
+    }
+  });
+
+  // ── Search ─────────────────────────────────────────────────────────────────
+  searchBtn.addEventListener('click', async () => {
+    hideError();
+    const file = cvFileInput.files[0];
+    if (!file) { showError('Please select a CV file first.'); return; }
+
+    const formData = new FormData();
+    formData.append('cv', file);
+    if (locationInput.value.trim())   formData.append('location',   locationInput.value.trim());
+    if (maxResultsInput.value)        formData.append('maxResults',  maxResultsInput.value);
+    if (jobTypeInput.value)           formData.append('jobType',     jobTypeInput.value);
+
+    setLoading(true, 'Parsing CV and searching for jobs…');
+    resultsSection.style.display = 'none';
+    jobList.innerHTML = '';
+
+    try {
+      const res = await fetch('/jobs/search-with-cv', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) { showError(data.error ?? 'Search failed.'); return; }
+      renderResults(data);
+    } catch (err) {
+      showError('Network error: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  // ── Render results ─────────────────────────────────────────────────────────
+  function renderResults(data) {
+    const jobs = data.jobs ?? [];
+    resultsCount.textContent = `${data.totalFound ?? jobs.length} jobs found · ${data.location ?? ''} · Skills: ${(data.skills ?? []).join(', ')}`;
+    jobList.innerHTML = '';
+
+    if (jobs.length === 0) {
+      jobList.innerHTML = '<p style="color:#718096;text-align:center;padding:2rem 0;">No matching jobs found. Try broadening your search.</p>';
+      resultsSection.style.display = '';
+      return;
+    }
+
+    jobs.forEach(job => {
+      const pct = Math.round((job.score ?? 0) * 100);
+      const card = document.createElement('div');
+      card.className = 'job-card';
+      card.innerHTML = `
+        <div class="job-main">
+          <div class="job-title">${escHtml(job.title)}</div>
+          <div class="job-meta">
+            <span>🏢 ${escHtml(job.company)}</span>
+            <span>📍 ${escHtml(job.location)}</span>
+            ${job.source  ? `<span>🌐 ${escHtml(job.source)}</span>` : ''}
+            ${job.salary  ? `<span>💰 ${escHtml(job.salary)}</span>` : ''}
+            ${job.jobType ? `<span>⏱ ${escHtml(job.jobType)}</span>` : ''}
+          </div>
+          <div class="job-desc">${escHtml(job.description ?? '')}</div>
+          <div class="job-skills">
+            ${(job.matchedSkills ?? []).map(s => `<span class="skill-badge">${escHtml(s)}</span>`).join('')}
+          </div>
+        </div>
+        <div class="job-actions">
+          <div class="job-score">
+            Match: ${pct}%
+            <br><span class="score-bar-wrap"><span class="score-bar" style="width:${pct}%"></span></span>
+          </div>
+          ${job.url ? `<a class="btn btn-secondary" href="${escAttr(job.url)}" target="_blank" rel="noopener noreferrer">🔗 View job</a>` : ''}
+          <button class="btn btn-primary create-email-btn" data-job='${encodeJobData(job)}'>✉️ Create email</button>
+        </div>`;
+      jobList.appendChild(card);
+    });
+
+    document.querySelectorAll('.create-email-btn').forEach(btn => {
+      btn.addEventListener('click', () => openEmailModal(JSON.parse(decodeURIComponent(btn.dataset.job))));
+    });
+
+    resultsSection.style.display = '';
+    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ── Email modal ────────────────────────────────────────────────────────────
+  async function openEmailModal(job) {
+    currentJob = job;
+    draftSubject.value = '';
+    draftBody.value = '';
+    copyNotice.style.display = 'none';
+    modalBackdrop.classList.add('open');
+    await fetchDraft(job);
+  }
+
+  async function fetchDraft(job) {
+    const name  = draftApplicantName.value.trim()  || 'Your Name';
+    const email = draftApplicantEmail.value.trim() || 'your@email.com';
+    try {
+      const res = await fetch('/email/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobTitle: job.title,
+          company:  job.company,
+          jobUrl:   job.url ?? '',
+          applicantName:  name,
+          applicantEmail: email,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        draftSubject.value = data.subject ?? '';
+        draftBody.value    = data.body    ?? '';
+      } else {
+        draftBody.value = data.error ?? 'Could not generate draft.';
+      }
+    } catch (err) {
+      draftBody.value = 'Error: ' + err.message;
+    }
+  }
+
+  function closeModal() {
+    modalBackdrop.classList.remove('open');
+    currentJob = null;
+  }
+
+  modalClose.addEventListener('click', closeModal);
+  btnClose.addEventListener('click', closeModal);
+  modalBackdrop.addEventListener('click', e => { if (e.target === modalBackdrop) closeModal(); });
+
+  btnRegenerate.addEventListener('click', () => {
+    if (currentJob) fetchDraft(currentJob);
+  });
+
+  btnCopy.addEventListener('click', async () => {
+    const text = `Subject: ${draftSubject.value}\n\n${draftBody.value}`;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    copyNotice.style.display = 'inline';
+    setTimeout(() => { copyNotice.style.display = 'none'; }, 2500);
+  });
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function setLoading(on, msg = '') {
+    statusEl.style.display = on ? 'flex' : 'none';
+    if (msg) statusText.textContent = msg;
+    searchBtn.disabled = on;
+  }
+  function showError(msg) {
+    errorBanner.textContent = msg;
+    errorBanner.style.display = 'block';
+  }
+  function hideError() {
+    errorBanner.style.display = 'none';
+  }
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function escAttr(s) {
+    // Only allow http/https URLs in links
+    const str = String(s).trim();
+    if (!/^https?:\/\//i.test(str)) return '#';
+    return str.replace(/"/g,'&quot;');
+  }
+  function encodeJobData(job) {
+    return encodeURIComponent(JSON.stringify(job));
+  }
+})();
+</script>
+</body>
+</html>

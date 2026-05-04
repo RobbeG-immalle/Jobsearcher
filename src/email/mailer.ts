@@ -22,6 +22,15 @@ function createTransporter() {
 }
 
 /**
+ * Generate an email draft (subject + body) without sending it.
+ */
+export function generateEmailDraft(opts: EmailOptions): { subject: string; body: string } {
+  const subject = `Application for ${opts.jobTitle} at ${opts.company}`;
+  const body = opts.coverLetter ?? generateDefaultCoverLetter(opts);
+  return { subject, body };
+}
+
+/**
  * Send a job application email.
  *
  * If `coverLetter` is not supplied, a default one is generated using the
